@@ -7,7 +7,7 @@ from server.graph.state import ResearchState
 # Initialize the Gemini model
 # We use gemini-1.5-flash because it is fast, free, and excellent at reasoning tasks
 llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",
+    model="gemini-2.5-flash",
     api_key=settings.GEMINI_API_KEY,
     temperature=0.2 # Low temperature for more deterministic/structured output
 )
