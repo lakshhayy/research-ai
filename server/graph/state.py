@@ -5,6 +5,7 @@ class ResearchState(TypedDict):
     # --- Input ---
     query: str
     session_id: str
+    search_depth: str # "basic" or "advanced"
 
     # --- Planner output ---
     sub_questions: list[str]

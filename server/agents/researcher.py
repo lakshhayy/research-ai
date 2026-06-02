@@ -40,14 +40,13 @@ async def run_researcher(state: dict) -> dict:
     to this node containing just the 'sub_question' for this specific branch.
     """
     sub_question = state.get("sub_question")
+    search_depth = state.get("search_depth", "basic")
     
     if not sub_question:
         raise ValueError("Researcher node requires a 'sub_question' in the state payload.")
         
     # 1. Call our Tavily Tool
-    # In a fully agentic setup, the LLM might decide the search query, 
-    # but for speed and cost-efficiency in our architecture, we pass the sub-question directly.
-    raw_results = await tavily_search(sub_question, max_results=3)
+    raw_results = await tavily_search(sub_question, max_results=3, search_depth=search_depth)
     
     # Extract URLs for the prompt
     sources = [res.get("url") for res in raw_results if res.get("url")]

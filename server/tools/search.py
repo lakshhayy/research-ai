@@ -7,16 +7,15 @@ from server.config import settings
 # Initialize the async Tavily client using our config
 tavily_client = AsyncTavilyClient(api_key=settings.TAVILY_API_KEY)
 
-async def tavily_search(query: str, max_results: int = 5) -> list[dict]:
+async def tavily_search(query: str, max_results: int = 5, search_depth: str = "basic") -> list[dict]:
     """
     Search the web using Tavily API and return a list of results.
     Each result contains: title, url, content, score.
     """
-    # We use search_depth="basic" for speed, can be "advanced" for better results
     response = await tavily_client.search(
         query=query, 
         max_results=max_results,
-        search_depth="basic"
+        search_depth=search_depth
     )
     
     # Extract only the fields we care about
