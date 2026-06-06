@@ -17,7 +17,7 @@ app = FastAPI(
 # we must explicitly tell FastAPI to "allow" requests from that frontend.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.CLIENT_URL, "http://localhost:5173"], # Allows the React frontend to talk to us
+    allow_origins=["*"], # Allows the React frontend to talk to us from any domain (Render)
     allow_credentials=True,
     allow_methods=["*"], # Allows all HTTP methods (GET, POST, etc.)
     allow_headers=["*"], # Allows all headers
