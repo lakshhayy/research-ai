@@ -1,20 +1,20 @@
 import json
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 from server.config import settings
 from server.graph.state import ResearchState
 
-# Initialize the Gemini model
-# We use gemini-1.5-flash because it is fast, free, and excellent at reasoning tasks
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    api_key=settings.GEMINI_API_KEY,
+# Initialize the Groq model
+# We use llama-3.3-70b-versatile because it is incredibly fast and free
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=settings.GROQ_API_KEY,
     temperature=0.2 # Low temperature for more deterministic/structured output
 )
 
 PLANNER_PROMPT = """
 You are a research planning agent. Your job is to decompose a research query into
-3-5 specific, non-overlapping sub-questions that together fully cover the topic.
+2-3 specific, non-overlapping sub-questions that together fully cover the topic.
 
 Rules:
 - Each sub-question must be answerable with a web search

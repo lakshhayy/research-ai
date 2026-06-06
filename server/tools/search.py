@@ -1,5 +1,5 @@
 import asyncio
-from typing import List, dict
+from typing import List
 from tavily import AsyncTavilyClient
 from langchain_core.tools import tool
 from server.config import settings
@@ -18,13 +18,18 @@ async def tavily_search(query: str, max_results: int = 5, search_depth: str = "b
         search_depth=search_depth
     )
     
-    # Extract only the fields we care about
+    # Extract only the fields we care about and truncate content to save tokens!
     results = []
-    for raw_result in response.get("results", []):
+    for raw_result in response.get("results", [])[:3]: # Force max 3 results
+        # Truncate content to max 1500 chars to avoid Groq 6000 TPM limit
+        content = raw_result.get("content", "")
+        if len(content) > 1500:
+            content = content[:1500] + "..."
+            
         results.append({
             "title": raw_result.get("title"),
             "url": raw_result.get("url"),
-            "content": raw_result.get("content"),
+            "content": content,
             "score": raw_result.get("score")
         })
         

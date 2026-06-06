@@ -109,6 +109,7 @@ researchpilot/
 │   │   │   ├── ui/              → shadcn components
 │   │   │   ├── QueryInput.tsx   → research query input + submit button
 │   │   │   ├── GraphVisualizer.tsx → live pipeline diagram (nodes lighting up)
+│   │   │   ├── FindingsReview.tsx  → HITL approval component before synthesis
 │   │   │   ├── FindingsStream.tsx  → findings appearing per researcher as they finish
 │   │   │   ├── ReportViewer.tsx → final markdown report renderer
 │   │   │   ├── ConfidenceBadge.tsx → confidence % + color indicator
@@ -152,6 +153,9 @@ research_sessions
   error             (text, nullable)
   created_at        (timestamp)
   completed_at      (timestamp, nullable)
+  total_input_tokens (integer, default 0)          ← cost tracking
+  total_output_tokens (integer, default 0)         ← cost tracking
+  estimated_cost_usd (float, default 0.0)          ← cost tracking
 
 research_steps
   id                (uuid, pk)
@@ -175,6 +179,7 @@ POST   /api/research                → submit query → run graph → return se
 GET    /api/research                → get all sessions (history, paginated, newest first)
 GET    /api/research/:id            → get full session detail + all steps
 DELETE /api/research/:id            → cancel a running session
+POST   /api/research/:id/resume     → resume graph from HITL interrupt
 
 STREAMING
 GET    /api/research/:id/stream     → SSE endpoint — streams live graph events as session runs
@@ -219,6 +224,10 @@ class ResearchState(TypedDict):
     confidence_score: float
     follow_up_questions: list[str]
     sources: list[str]
+
+    # Cost & Token Tracking
+    total_input_tokens: Annotated[int, operator.add]
+    total_output_tokens: Annotated[int, operator.add]
 ```
 
 This single file is what interviewers will ask about. The `Annotated[list, operator.add]` on `findings` is what enables parallel researchers to each write their own findings without clobbering each other — LangGraph merges them automatically.
@@ -660,6 +669,20 @@ VITE_API_URL=http://localhost:8000
 - Verify final session row in DB has correct status + report
 - Test query: "What are the most popular programming languages in 2025 and what are they used for?"
 
+#### Chunk 2.7 — HITL (Human-in-the-Loop) Checkpoint
+- Modify `graph/builder.py` to add `interrupt_before=["synthesizer"]`.
+- Create `POST /api/research/:id/resume` in `routes/research.py` to resume the graph.
+- Update frontend (`GraphVisualizer.tsx`) to show "Awaiting Approval" state on Synthesizer node.
+- Create `FindingsReview` component with an Approve button to call the resume endpoint.
+
+#### Chunk 2.8 — Cost & Token Logging
+- Update every agent to extract `input_tokens` and `output_tokens` from Groq API response.
+- Aggregate totals in `ResearchState` using `operator.add` reducers.
+- Add `total_input_tokens`, `total_output_tokens`, `estimated_cost_usd` to `db/models.py`.
+- Generate Alembic migration.
+- Calculate USD cost based on Groq `llama-3.1-8b-instant` pricing ($0.05/1M input, $0.08/1M output).
+- Update frontend (`ReportViewer.tsx`) to display cost and token count below the confidence badge.
+
 **Week 2 Checklist:**
 - [ ] POST /api/research creates session + starts graph in background
 - [ ] SSE stream delivers node events in real-time
@@ -717,6 +740,7 @@ VITE_API_URL=http://localhost:8000
 #### Chunk 3.6 — ReportViewer component
 - Renders final markdown report using `react-markdown` + `remark-gfm`
 - Confidence badge: color-coded (green >80%, yellow 60-80%, red <60%)
+- Displays estimated cost and token count below the confidence badge
 - Sources list with clickable links
 - Follow-up question chips — clicking one submits it as a new research query
 - "Copy Report" button
@@ -787,6 +811,12 @@ When starting a new coding session, paste this at the top:
 **"How is this different from just calling an LLM API once with a big prompt?"**
 → Three things a single call can't do: (1) parallel execution — four researchers run simultaneously, cutting latency by ~65%; (2) self-evaluation — the Critic independently scores quality, separate from the researcher so there's no self-serving bias; (3) targeted retry — only weak branches get re-researched, not the whole query. A single prompt would be slower, produce lower quality, and have no mechanism to improve its own output.
 
+**"How did you implement Human-in-the-Loop (HITL) for quality control?"**
+→ I used LangGraph's native `interrupt_before` functionality to pause execution right before the Synthesizer node. The React frontend detects this paused state and renders a `FindingsReview` component. The user reviews the Critic's scores and the accumulated findings, then clicks "Approve" which hits a `/resume` endpoint, triggering the graph to continue from where its memory left off.
+
+**"How do you track and estimate costs across a multi-agent system?"**
+→ I parse the `usage_metadata` from the Groq API response inside every agent. Since multiple researcher agents run in parallel, I added `total_input_tokens` and `total_output_tokens` to the TypedDict state using `operator.add` reducers to ensure thread-safe accumulation. Finally, I calculate the USD cost based on model pricing and persist it to PostgreSQL via SQLAlchemy.
+
 ---
 
 ## Resume Bullets (Fill In After Shipping)
@@ -798,6 +828,12 @@ Python, LangGraph, LangChain, FastAPI, Gemini API, Tavily, PostgreSQL
 • Designed a 5-node LangGraph StateGraph (Planner → Researchers → Critic →
   Synthesizer → Grader) with typed state accumulation using TypedDict and
   operator.add reducers for concurrent-safe parallel writes
+
+• Engineered a Human-in-the-Loop (HITL) checkpoint system pausing execution before
+  synthesis, allowing user approval via a React interface and resuming statefully
+
+• Implemented granular telemetry by extracting LLM token usage across parallel agents,
+  accumulating counts via state reducers, and calculating real-time USD cost estimates
 
 • Implemented a self-evaluating retry loop via LangGraph conditional edges —
   Critic node scores each research branch 0-10; branches below threshold
@@ -833,3 +869,35 @@ Python, LangGraph, LangChain, FastAPI, Gemini API, Tavily, PostgreSQL
 | `graph.ainvoke()` | `routes/research.py` | Async graph execution |
 | `graph.astream()` | Optional upgrade | Stream state updates instead of SSE |
 | `interrupt_before` | Optional upgrade | Human-in-the-loop before synthesis |
+
+
+
+
+
+
+
+
+This is a fantastic question. The challenges we faced and the way we solved them are exactly the kind of stories that senior engineers tell in interviews. 
+
+If an interviewer asks you, *"What were the biggest technical challenges you faced in this project and how did you overcome them?"*, here is your exact script. We hit **5 major roadblocks** and solved them using real production-grade techniques:
+
+### 1. The "Parallel Execution" Rate Limit Bug
+**The Problem:** LangGraph is incredibly fast. When the Planner generated 4 questions, LangGraph instantly fired off 4 Researcher agents at the exact same millisecond. This immediately tripped Google Gemini's Free Tier rate limit (which was 5 requests per minute), crashing our app with a `429 RESOURCE_EXHAUSTED` error.
+**The Fix:** I introduced an `asyncio.Semaphore(1)` and an artificial `sleep(12)` in the Researcher agent. This acted as a "queue," forcing the parallel agents to wait in line and hit the API sequentially, keeping us under the limit without changing the core graph architecture.
+
+### 2. The Loop Quota Burn (Daily Limits)
+**The Problem:** We discovered that Google's new `gemini-2.5-flash` model had a hard daily limit of only 20 requests. Our Critic agent was using a `for` loop to evaluate the 4 research findings individually, meaning it was making 4 separate API calls every time it ran. This burned through our tiny daily quota instantly.
+**The Fix (Batching):** I refactored the Critic agent to evaluate **ALL** findings simultaneously in a single, batched LLM call. This optimized our API usage, reducing the Critic's cost by 75%. 
+
+### 3. The "Limit: 0" Block (Vendor Lock-in Issues)
+**The Problem:** Google's API suddenly blocked your account entirely, giving a `limit: 0` error when we tried to switch to `gemini-2.0-flash-lite`. 
+**The Fix (Provider Swap):** To avoid being locked out of development, we ripped out the Google Gemini dependencies and migrated the entire multi-agent system to **Groq** using Meta's open-source `Llama-3.3-70b` model. Because we used LangChain's modular abstractions (`ChatGroq` vs `ChatGoogleGenerativeAI`), this migration took less than 2 minutes and instantly solved our rate limit issues while vastly increasing our generation speed.
+
+### 4. The Token-Per-Minute (TPM) Bottleneck
+**The Problem:** Even on Groq, we hit a wall. The Researcher agents process massive amounts of scraped website text. During a "self-correction" loop, the agents ingested so much text that it pushed the `70b` model over its 12,000 Tokens-Per-Minute free-tier limit.
+**The Fix (Model Routing):** This was our most advanced fix. We implemented **Model Routing**. We kept the complex reasoning agents (Planner, Critic, Synthesizer, Grader) on the highly intelligent `70b-versatile` model. However, we downgraded the data-heavy Researcher agents to the smaller, faster `8b-instant` model. This split our token load across two different quota buckets, allowing the graph to execute perfectly without hitting limits.
+
+---
+If you talk about these 4 points in an interview—specifically the terms **Semaphores for throttling**, **Batching for optimization**, **Modular Provider Swapping**, and **Model Routing for TPM quotas**—you will sound like a senior AI engineer who knows how to handle real-world infrastructure. 
+
+Would you like me to update our `codebase_summary_and_study_guide.md` file to include these challenges so you have them permanently saved for interview prep?

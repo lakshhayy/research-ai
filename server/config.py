@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # App Config
     MAX_RETRY_COUNT: int = 2
     MIN_QUALITY_SCORE: float = 6.0
-    MAX_SUB_QUESTIONS: int = 5
+    MAX_SUB_QUESTIONS: int = 3
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

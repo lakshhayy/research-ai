@@ -1,73 +1,69 @@
 import json
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from server.config import settings
 from server.graph.state import ResearchState
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    api_key=settings.GEMINI_API_KEY,
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    api_key=settings.GROQ_API_KEY,
     temperature=0.1 # Very low temperature for strict grading
 )
 
 CRITIC_PROMPT = """
-You are a research quality critic. You will evaluate research findings on a sub-question
-and give a quality score.
+You are a research quality critic. You will evaluate multiple research findings and give each a quality score.
 
-Sub-question: {sub_question}
-Findings: {findings}
+Findings:
+{findings}
 
-Score the findings from 0-10 based on:
-- Relevance to the sub-question (0-4 points)
+Score each finding from 0-10 based on:
+- Relevance to its sub-question (0-4 points)
 - Specificity and data quality (0-3 points)
 - Recency and credibility of sources (0-3 points)
 
 Score < 6 means the research needs to be redone.
 Score >= 6 means the research is acceptable.
 
-Return ONLY a JSON object matching this structure exactly. No markdown blocks like ```json.
+Return ONLY a JSON object exactly matching this structure. No markdown blocks like ```json.
 {{
-  "score": 7,
+  "critique": {{
+    "sub_question_1": 7,
+    "sub_question_2": 4
+  }},
   "gaps": ["missing X", "needs more Y"]
 }}
 """
 
 async def run_critic(state: ResearchState) -> dict:
     """
-    The Critic node evaluates all findings currently in the state.
+    The Critic node evaluates all findings currently in the state in a SINGLE LLM call.
     It returns a critique dictionary containing scores, identifies any gaps, 
     and increments the retry count.
     """
     findings = state.get("findings", [])
     
-    critique = {}
-    all_gaps = []
+    # Format all findings into a single string
+    formatted_findings = ""
+    for f in findings:
+        formatted_findings += f"Sub-question: {f.get('sub_question')}\n"
+        formatted_findings += f"Summary: {f.get('summary')}\n\n"
+        
+    prompt = CRITIC_PROMPT.format(
+        findings=formatted_findings
+    )
     
-    # Evaluate each finding individually
-    for finding in findings:
-        sub_question = finding.get("sub_question", "Unknown")
-        summary = finding.get("summary", "")
-        
-        prompt = CRITIC_PROMPT.format(
-            sub_question=sub_question,
-            findings=summary
-        )
-        
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
-        
-        try:
-            text = response.content.strip().strip('`').removeprefix('json').strip()
-            data = json.loads(text)
-            score = data.get("score", 0)
-            gaps = data.get("gaps", [])
-        except Exception as e:
-            print(f"Failed to parse critic output for '{sub_question}': {response.content}")
-            score = 0
-            gaps = ["Failed to generate a valid critique."]
-            
-        critique[sub_question] = score
-        if score < settings.MIN_QUALITY_SCORE:
-            all_gaps.extend(gaps)
+    print("🤖 Critic evaluating all findings at once...")
+    response = await llm.ainvoke([HumanMessage(content=prompt)])
+    
+    try:
+        text = response.content.strip().strip('`').removeprefix('json').strip()
+        data = json.loads(text)
+        critique = data.get("critique", {})
+        all_gaps = data.get("gaps", [])
+    except Exception as e:
+        print(f"Failed to parse critic output: {response.content}")
+        critique = {f.get("sub_question"): 0 for f in findings}
+        all_gaps = ["Failed to generate a valid critique."]
 
     # Increment retry count for the state
     current_retry = state.get("retry_count", 0)

@@ -1,13 +1,16 @@
 import json
-from langchain_google_genai import ChatGoogleGenerativeAI
+import asyncio
+from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from server.config import settings
 from server.tools.search import tavily_search
 
-# We use the same fast and free Gemini model
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    api_key=settings.GEMINI_API_KEY,
+# The Researcher processes large chunks of text from the web.
+# To avoid hitting the 12k Tokens-Per-Minute limit of the 70B model, 
+# we use the 8B model here which has a much higher rate limit.
+llm = ChatGroq(
+    model="llama-3.1-8b-instant",
+    api_key=settings.GROQ_API_KEY,
     temperature=0.3
 )
 
@@ -63,6 +66,7 @@ async def run_researcher(state: dict) -> dict:
         search_results=formatted_results
     )
     
+    print(f"⚡ Researcher calling Groq for: {sub_question}")
     response = await llm.ainvoke([HumanMessage(content=prompt)])
     
     # 3. Parse JSON
