@@ -20,6 +20,32 @@ ResearchPilot is an **autonomous AI research orchestration system**. Unlike stan
 - **Real-Time Observability (SSE)**: The FastAPI backend streams the internal thoughts and state transitions of the agents via Server-Sent Events (SSE). 
 - **Premium Frontend**: A React/Vite application built with Tailwind CSS v3, Shadcn UI, and Framer Motion. Features a deep dark mode "Glassmorphism" aesthetic with real-time animated graph visualizations.
 
+### Graph Architecture
+
+```mermaid
+%%{init: {'flowchart': {'curve': 'linear'}}}%%
+graph TD;
+	__start__([__start__]):::first
+	planner(planner)
+	researcher(researcher)
+	critic(critic)
+	synthesizer(synthesizer)
+	grader(grader)
+	__end__([__end__]):::last
+	
+	__start__ --> planner;
+	critic -.-> planner;
+	critic -.-> synthesizer;
+	planner -.-> researcher;
+	researcher --> critic;
+	synthesizer --> grader;
+	grader --> __end__;
+	
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+
 ---
 
 ## 🛠️ Tech Stack
