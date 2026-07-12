@@ -1,7 +1,6 @@
 databases:
   - name: researchpilot-db
     databaseName: researchpilot
-    user: postgres
     plan: free
 
 services:
